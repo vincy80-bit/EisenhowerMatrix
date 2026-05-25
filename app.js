@@ -476,16 +476,17 @@ async function syncWithGoogle() {
   try {
     // Step 1: Ensure active tasklist exists
     let taskLists = await googleApiFetch('https://tasks.googleapis.com/v1/users/@me/lists');
+    const lists = taskLists.items || [];
     
     // Find matching list or create a default "ZenMatrix"
     let targetList = null;
     if (state.googleTaskListId) {
-      targetList = taskLists.items.find(l => l.id === state.googleTaskListId);
+      targetList = lists.find(l => l.id === state.googleTaskListId);
     }
     
     if (!targetList) {
       // Find by title "ZenMatrix"
-      targetList = taskLists.items.find(l => l.title === 'ZenMatrix');
+      targetList = lists.find(l => l.title === 'ZenMatrix');
     }
     
     if (!targetList) {
@@ -495,6 +496,9 @@ async function syncWithGoogle() {
         body: JSON.stringify({ title: 'ZenMatrix' })
       });
       showToast('Created Google Tasks list: ZenMatrix');
+      
+      // Refresh the lists to include the newly created one
+      taskLists = await googleApiFetch('https://tasks.googleapis.com/v1/users/@me/lists');
     }
     
     state.googleTaskListId = targetList.id;
@@ -503,7 +507,7 @@ async function syncWithGoogle() {
     localStorage.setItem('zenmatrix_tasklist_title', state.activeTaskListTitle);
     
     updateConnectionStatus(true);
-    populateTaskListSelect(taskLists.items);
+    populateTaskListSelect(taskLists.items || [targetList]);
     
     // Step 2: Fetch remote tasks
     // Fetch both completed and active tasks
@@ -582,7 +586,12 @@ async function syncWithGoogle() {
     
   } catch (err) {
     console.error('Failed to sync with Google Tasks API:', err);
-    showToast('Failed to sync tasks', true);
+    const errMsg = err.message || 'Unknown error';
+    if (errMsg.includes('403')) {
+      showToast('Sync Failed: Google Tasks API is NOT enabled in your Cloud Console!', true);
+    } else {
+      showToast(`Sync Failed: ${errMsg}`, true);
+    }
   } finally {
     state.isSyncing = false;
     el.syncSpinner.style.display = 'none';
