@@ -20,11 +20,23 @@ const TAG_REGEX = /(?:#(q1|q2|q3|q4|do|schedule|delegate|eliminate))\b/gi;
 // Application State
 const state = {
   tasks: [],
+  // Local Wi-Fi Sync State
   syncServerIp: localStorage.getItem('zenmatrix_sync_server') || 'http://localhost:3000',
   syncKey: localStorage.getItem('zenmatrix_sync_key') || '',
   lastSyncTimestamp: parseInt(localStorage.getItem('zenmatrix_last_sync') || '0', 10),
+  
+  // Google Tasks Cloud Sync State
+  googleClientId: localStorage.getItem('zenmatrix_client_id') || '',
+  googleTaskListId: localStorage.getItem('zenmatrix_tasklist_id') || '',
+  googleAccessToken: localStorage.getItem('zenmatrix_access_token') || '',
+  googleTokenExpiry: parseInt(localStorage.getItem('zenmatrix_token_expiry') || '0', 10),
+  activeTaskListTitle: localStorage.getItem('zenmatrix_tasklist_title') || '',
+  
+  // General Sync Config
   isSyncing: false,
-  isServerConnected: false
+  activeSyncMode: localStorage.getItem('zenmatrix_sync_mode') || 'OFFLINE', // 'OFFLINE' | 'WIFI' | 'GOOGLE'
+  isServerConnected: false,
+  isGoogleConnected: false
 };
 
 // ==========================================
@@ -70,6 +82,13 @@ const el = {
   generateKeyBtn: document.getElementById('generate-key-btn'),
   testConnectionBtn: document.getElementById('test-connection-btn'),
   wifiSyncNowBtn: document.getElementById('wifi-sync-now-btn'),
+  
+  // Google Sync Elements
+  googleClientIdInput: document.getElementById('google-client-id'),
+  googleTasklistSelect: document.getElementById('google-tasklist-select'),
+  googleTasklistGroup: document.getElementById('google-tasklist-group'),
+  disconnectGoogleBtn: document.getElementById('disconnect-google-btn'),
+  googleLoginBtn: document.getElementById('google-login-btn'),
   
   // QR Share
   generateQrBtn: document.getElementById('generate-qr-btn'),
@@ -267,8 +286,10 @@ function loadLocalTasks() {
 }
 
 // ==========================================
-// 5. OFFLINE SYNC, QR SHARE, & FILE BACKUP
+// 5. DUAL SYNC CORE (GOOGLE TASKS & LOCAL WI-FI)
 // ==========================================
+
+let tokenClient = null;
 
 /**
  * Simple Toast visual notification.
@@ -307,18 +328,38 @@ function showToast(message, isError = false) {
 /**
  * Updates UI to show connection status
  */
-function updateConnectionStatus(isConnected) {
-  state.isServerConnected = isConnected;
-  if (isConnected) {
-    el.connectionStatus.textContent = 'Wi-Fi Synced';
-    el.connectionStatus.style.borderColor = '#10b981';
-    el.connectionStatus.style.color = '#10b981';
-    el.syncCenterBtn.style.borderColor = '#10b981';
-  } else if (state.syncKey && state.syncServerIp) {
-    el.connectionStatus.textContent = 'Server Offline';
-    el.connectionStatus.style.borderColor = 'hsl(5, 90%, 60%)';
-    el.connectionStatus.style.color = 'hsl(5, 90%, 60%)';
-    el.syncCenterBtn.style.borderColor = 'hsl(5, 90%, 60%)';
+function updateConnectionStatus() {
+  if (state.activeSyncMode === 'GOOGLE') {
+    if (state.isGoogleConnected) {
+      el.connectionStatus.textContent = state.activeTaskListTitle 
+        ? `Google: ${state.activeTaskListTitle}`
+        : 'Google Connected';
+      el.connectionStatus.style.borderColor = '#10b981';
+      el.connectionStatus.style.color = '#10b981';
+      el.syncCenterBtn.style.borderColor = '#10b981';
+    } else {
+      el.connectionStatus.textContent = 'Google Offline';
+      el.connectionStatus.style.borderColor = 'hsl(5, 90%, 60%)';
+      el.connectionStatus.style.color = 'hsl(5, 90%, 60%)';
+      el.syncCenterBtn.style.borderColor = 'hsl(5, 90%, 60%)';
+    }
+  } else if (state.activeSyncMode === 'WIFI') {
+    if (state.isServerConnected) {
+      el.connectionStatus.textContent = 'Wi-Fi Synced';
+      el.connectionStatus.style.borderColor = '#0ea5e9';
+      el.connectionStatus.style.color = '#0ea5e9';
+      el.syncCenterBtn.style.borderColor = '#0ea5e9';
+    } else if (state.syncKey && state.syncServerIp) {
+      el.connectionStatus.textContent = 'Server Offline';
+      el.connectionStatus.style.borderColor = 'hsl(5, 90%, 60%)';
+      el.connectionStatus.style.color = 'hsl(5, 90%, 60%)';
+      el.syncCenterBtn.style.borderColor = 'hsl(5, 90%, 60%)';
+    } else {
+      el.connectionStatus.textContent = 'Wi-Fi Offline';
+      el.connectionStatus.style.borderColor = 'var(--border-color)';
+      el.connectionStatus.style.color = 'var(--text-muted)';
+      el.syncCenterBtn.style.borderColor = 'var(--border-color)';
+    }
   } else {
     el.connectionStatus.textContent = 'Offline Mode';
     el.connectionStatus.style.borderColor = 'var(--border-color)';
@@ -326,6 +367,10 @@ function updateConnectionStatus(isConnected) {
     el.syncCenterBtn.style.borderColor = 'var(--border-color)';
   }
 }
+
+// ==========================================
+// A. NATIVE LOCAL WI-FI SYNC ENGINE
+// ==========================================
 
 /**
  * Tests connection with the local sync server
@@ -342,14 +387,16 @@ async function testServerConnection() {
     const res = await fetch(`${ip}/sync/test`, { method: 'GET' });
     if (res.ok) {
       showToast('Server connected successfully!');
-      updateConnectionStatus(true);
+      state.isServerConnected = true;
+      updateConnectionStatus();
     } else {
       throw new Error(`Status ${res.status}`);
     }
   } catch (err) {
     console.error('Server test failed:', err);
     showToast('Failed to connect to local server', true);
-    updateConnectionStatus(false);
+    state.isServerConnected = false;
+    updateConnectionStatus();
   }
 }
 
@@ -359,7 +406,8 @@ async function testServerConnection() {
 async function syncWithLocalServer(force = false) {
   if (state.isSyncing) return;
   if (!state.syncKey || !state.syncServerIp) {
-    updateConnectionStatus(false);
+    state.isServerConnected = false;
+    updateConnectionStatus();
     return;
   }
   
@@ -404,8 +452,9 @@ async function syncWithLocalServer(force = false) {
       state.lastSyncTimestamp = remoteTimestamp;
       localStorage.setItem('zenmatrix_last_sync', state.lastSyncTimestamp);
       saveLocalTasks();
-      updateConnectionStatus(true);
-      showToast('Tasks synchronized from network!');
+      state.isServerConnected = true;
+      updateConnectionStatus();
+      showToast('Tasks synchronized from local server!');
       renderAll();
       
     } else if (remoteTimestamp < state.lastSyncTimestamp || force || hasNewerLocalTasks(remoteTasks)) {
@@ -428,16 +477,19 @@ async function syncWithLocalServer(force = false) {
       
       state.lastSyncTimestamp = payload.timestamp;
       localStorage.setItem('zenmatrix_last_sync', state.lastSyncTimestamp);
-      updateConnectionStatus(true);
-      if (force) showToast('Sync pushed to local network.');
+      state.isServerConnected = true;
+      updateConnectionStatus();
+      if (force) showToast('Sync pushed to local server.');
     } else {
       // Identical timestamps, up to date!
-      updateConnectionStatus(true);
+      state.isServerConnected = true;
+      updateConnectionStatus();
     }
     
   } catch (err) {
     console.error('Local sync failed:', err);
-    updateConnectionStatus(false);
+    state.isServerConnected = false;
+    updateConnectionStatus();
   } finally {
     state.isSyncing = false;
     el.syncSpinner.style.display = 'none';
@@ -463,10 +515,373 @@ function hasNewerLocalTasks(remoteTasks) {
  */
 function startAutoSyncLoop() {
   setInterval(() => {
-    if (state.syncKey && state.syncServerIp && !state.isSyncing) {
+    if (state.activeSyncMode === 'WIFI' && state.syncKey && state.syncServerIp && !state.isSyncing) {
       syncWithLocalServer(false);
     }
   }, 10000);
+}
+
+// ==========================================
+// B. GOOGLE TASKS API SYNC ENGINE
+// ==========================================
+
+/**
+ * Checks if Google login token is valid.
+ */
+function checkGoogleTokenValidity() {
+  if (state.googleAccessToken && state.googleTokenExpiry > Date.now()) {
+    state.isGoogleConnected = true;
+    updateConnectionStatus();
+    return true;
+  }
+  state.isGoogleConnected = false;
+  state.googleAccessToken = '';
+  localStorage.removeItem('zenmatrix_access_token');
+  updateConnectionStatus();
+  return false;
+}
+
+/**
+ * Initializes Google OAuth identity client.
+ */
+function initGoogleIdentityClient() {
+  if (!state.googleClientId) {
+    state.isGoogleConnected = false;
+    updateConnectionStatus();
+    return;
+  }
+
+  try {
+    if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
+      setTimeout(initGoogleIdentityClient, 500);
+      return;
+    }
+    
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: state.googleClientId,
+      scope: 'https://www.googleapis.com/auth/tasks',
+      callback: (tokenResponse) => {
+        if (tokenResponse.error !== undefined) {
+          console.error('Google Sign-in Error:', tokenResponse);
+          showToast('Google login failed', true);
+          return;
+        }
+        
+        state.googleAccessToken = tokenResponse.access_token;
+        state.googleTokenExpiry = Date.now() + (tokenResponse.expires_in * 1000);
+        state.isGoogleConnected = true;
+        
+        localStorage.setItem('zenmatrix_access_token', state.googleAccessToken);
+        localStorage.setItem('zenmatrix_token_expiry', state.googleTokenExpiry);
+        
+        showToast('Successfully connected to Google!');
+        updateConnectionStatus();
+        
+        // Fetch lists and sync
+        syncWithGoogle();
+      },
+    });
+  } catch (err) {
+    console.error('Error initializing Google GSI client:', err);
+  }
+}
+
+/**
+ * Disconnects Google Tasks Cloud Sync.
+ */
+function disconnectGoogle() {
+  state.isGoogleConnected = false;
+  state.googleAccessToken = '';
+  state.googleTaskListId = '';
+  state.activeTaskListTitle = '';
+  localStorage.removeItem('zenmatrix_access_token');
+  localStorage.removeItem('zenmatrix_token_expiry');
+  localStorage.removeItem('zenmatrix_tasklist_id');
+  localStorage.removeItem('zenmatrix_tasklist_title');
+  
+  updateConnectionStatus();
+  el.googleTasklistGroup.style.display = 'none';
+  el.disconnectGoogleBtn.style.display = 'none';
+  el.googleLoginBtn.querySelector('span').textContent = 'Connect Google';
+  showToast('Google account disconnected');
+  renderAll();
+}
+
+/**
+ * Trigger OAuth login token retrieval popup.
+ */
+function connectGoogleAccount() {
+  const inputId = el.googleClientIdInput.value.trim();
+  if (!inputId) {
+    showToast('Please enter your Google Client ID first!', true);
+    return;
+  }
+  
+  state.googleClientId = inputId;
+  localStorage.setItem('zenmatrix_client_id', inputId);
+  
+  if (checkGoogleTokenValidity()) {
+    syncWithGoogle();
+    return;
+  }
+
+  if (tokenClient) {
+    tokenClient.requestAccessToken({ prompt: 'consent' });
+  } else {
+    initGoogleIdentityClient();
+    setTimeout(() => {
+      if (tokenClient) tokenClient.requestAccessToken({ prompt: 'consent' });
+      else showToast('Google OAuth library loading... Try again.', true);
+    }, 600);
+  }
+}
+
+/**
+ * REST Client helper to query Google Tasks with Auth Header.
+ */
+async function googleApiFetch(url, options = {}) {
+  if (!state.googleAccessToken) {
+    throw new Error('No Google Access Token available');
+  }
+  
+  options.headers = {
+    ...options.headers,
+    'Authorization': `Bearer ${state.googleAccessToken}`,
+    'Content-Type': 'application/json'
+  };
+  
+  const response = await fetch(url, options);
+  
+  if (response.status === 401) {
+    disconnectGoogle();
+    throw new Error('Google authentication expired. Please reconnect.');
+  }
+  
+  if (!response.ok) {
+    const errorBody = await response.text();
+    console.error('Google API Error Response:', errorBody);
+    throw new Error(`Google API returned status ${response.status}`);
+  }
+  
+  if (response.status === 204) return null;
+  return await response.json();
+}
+
+/**
+ * Google Cloud tasks synchronization.
+ */
+async function syncWithGoogle() {
+  if (state.isSyncing) return;
+  if (!checkGoogleTokenValidity()) return;
+  
+  state.isSyncing = true;
+  el.syncSpinner.style.display = 'flex';
+  
+  try {
+    // Step 1: Ensure active tasklist exists
+    let taskLists = await googleApiFetch('https://tasks.googleapis.com/v1/users/@me/lists');
+    const lists = taskLists.items || [];
+    
+    // Find matching list or create a default "ZenMatrix"
+    let targetList = null;
+    if (state.googleTaskListId) {
+      targetList = lists.find(l => l.id === state.googleTaskListId);
+    }
+    
+    if (!targetList) {
+      targetList = lists.find(l => l.title === 'ZenMatrix');
+    }
+    
+    if (!targetList) {
+      // Create new list
+      targetList = await googleApiFetch('https://tasks.googleapis.com/v1/users/@me/lists', {
+        method: 'POST',
+        body: JSON.stringify({ title: 'ZenMatrix' })
+      });
+      showToast('Created Google Tasks list: ZenMatrix');
+      
+      // Refresh the lists to include the newly created one
+      taskLists = await googleApiFetch('https://tasks.googleapis.com/v1/users/@me/lists');
+    }
+    
+    state.googleTaskListId = targetList.id;
+    state.activeTaskListTitle = targetList.title;
+    localStorage.setItem('zenmatrix_tasklist_id', state.googleTaskListId);
+    localStorage.setItem('zenmatrix_tasklist_title', state.activeTaskListTitle);
+    
+    state.isGoogleConnected = true;
+    updateConnectionStatus();
+    populateTaskListSelect(taskLists.items || [targetList]);
+    
+    // Step 2: Fetch remote tasks
+    const remoteUrl = `https://tasks.googleapis.com/v1/lists/${state.googleTaskListId}/tasks?showCompleted=true&showHidden=true&maxResults=100`;
+    const remoteTasksData = await googleApiFetch(remoteUrl);
+    const remoteTasks = remoteTasksData.items || [];
+    
+    // Step 3: Merge algorithm
+    let mergedTasks = [...state.tasks];
+    
+    for (const gTask of remoteTasks) {
+      if (gTask.deleted) continue;
+      
+      const { cleanedTitle, quadrant } = parseTitleTags(gTask.title);
+      const isCompleted = gTask.status === 'completed';
+      const remoteUpdated = gTask.updated ? new Date(gTask.updated).getTime() : 0;
+      
+      // Look for existing local task matching Google Task ID
+      let localIndex = mergedTasks.findIndex(t => t.googleTaskId === gTask.id);
+      
+      if (localIndex === -1) {
+        localIndex = mergedTasks.findIndex(t => !t.googleTaskId && t.title === cleanedTitle);
+      }
+      
+      if (localIndex !== -1) {
+        const localTask = mergedTasks[localIndex];
+        
+        if (remoteUpdated > (localTask.updated || 0)) {
+          // Google's version is newer
+          mergedTasks[localIndex] = {
+            ...localTask,
+            googleTaskId: gTask.id,
+            title: cleanedTitle,
+            notes: gTask.notes || '',
+            quadrant: quadrant || 'INBOX',
+            due: formatInputDate(gTask.due),
+            completed: isCompleted,
+            updated: remoteUpdated
+          };
+        } else if (remoteUpdated < (localTask.updated || 0)) {
+          // Local task is newer. Push update to Google Tasks.
+          await syncLocalTaskToGoogle(localTask);
+        } else {
+          if (!localTask.googleTaskId) {
+            localTask.googleTaskId = gTask.id;
+          }
+        }
+      } else {
+        // Completely new remote task. Add to local list.
+        mergedTasks.push({
+          id: generateUUID(),
+          googleTaskId: gTask.id,
+          title: cleanedTitle,
+          notes: gTask.notes || '',
+          quadrant: quadrant || 'INBOX',
+          due: formatInputDate(gTask.due),
+          completed: isCompleted,
+          updated: remoteUpdated || Date.now()
+        });
+      }
+    }
+    
+    // Push offline tasks that have never been uploaded to Google Tasks
+    for (const localTask of mergedTasks) {
+      if (!localTask.googleTaskId) {
+        await syncLocalTaskToGoogle(localTask);
+      }
+    }
+    
+    state.tasks = mergedTasks;
+    saveLocalTasks();
+    showToast('Google tasks synced successfully!');
+    
+  } catch (err) {
+    console.error('Failed to sync with Google Tasks API:', err);
+    const errMsg = err.message || 'Unknown error';
+    if (errMsg.includes('403')) {
+      showToast('Sync Failed: Google Tasks API is NOT enabled in your Cloud Console!', true);
+    } else {
+      showToast(`Sync Failed: ${errMsg}`, true);
+    }
+    state.isGoogleConnected = false;
+    updateConnectionStatus();
+  } finally {
+    state.isSyncing = false;
+    el.syncSpinner.style.display = 'none';
+    renderAll();
+  }
+}
+
+/**
+ * Creates or updates a specific task on Google Tasks in the background.
+ */
+async function syncLocalTaskToGoogle(localTask) {
+  if (!state.googleAccessToken) return;
+  
+  const formattedTitle = formatTitleWithTag(localTask.title, localTask.quadrant);
+  const taskBody = {
+    title: formattedTitle,
+    notes: localTask.notes || '',
+    status: localTask.completed ? 'completed' : 'needsAction',
+    due: localTask.due ? new Date(localTask.due).toISOString() : null
+  };
+  
+  try {
+    if (localTask.googleTaskId) {
+      const url = `https://tasks.googleapis.com/v1/lists/${state.googleTaskListId}/tasks/${localTask.googleTaskId}`;
+      const response = await googleApiFetch(url, {
+        method: 'PATCH',
+        body: JSON.stringify(taskBody)
+      });
+      localTask.updated = new Date(response.updated).getTime();
+    } else {
+      const url = `https://tasks.googleapis.com/v1/lists/${state.googleTaskListId}/tasks`;
+      const response = await googleApiFetch(url, {
+        method: 'POST',
+        body: JSON.stringify(taskBody)
+      });
+      localTask.googleTaskId = response.id;
+      localTask.updated = new Date(response.updated).getTime();
+    }
+  } catch (err) {
+    console.error(`Failed to push task "${localTask.title}" to Google Tasks:`, err);
+  }
+}
+
+/**
+ * Deletes a task from Google Tasks.
+ */
+async function deleteGoogleTask(googleTaskId) {
+  if (!state.googleAccessToken || !googleTaskId) return;
+  try {
+    const url = `https://tasks.googleapis.com/v1/lists/${state.googleTaskListId}/tasks/${googleTaskId}`;
+    await googleApiFetch(url, { method: 'DELETE' });
+  } catch (err) {
+    console.error('Failed to delete Google task:', err);
+  }
+}
+
+/**
+ * Populates lists dropdown in Google settings tab.
+ */
+function populateTaskListSelect(lists) {
+  el.googleTasklistSelect.innerHTML = '';
+  lists.forEach(list => {
+    const option = document.createElement('option');
+    option.value = list.id;
+    option.textContent = list.title;
+    if (list.id === state.googleTaskListId) {
+      option.selected = true;
+    }
+    el.googleTasklistSelect.appendChild(option);
+  });
+  
+  el.googleTasklistGroup.style.display = 'flex';
+  el.disconnectGoogleBtn.style.display = 'block';
+}
+
+/**
+ * Unified CRUD background sync router.
+ */
+function triggerBackgroundSync(task = null, isDelete = false) {
+  if (state.activeSyncMode === 'GOOGLE' && checkGoogleTokenValidity()) {
+    if (isDelete && task && task.googleTaskId) {
+      deleteGoogleTask(task.googleTaskId);
+    } else if (task) {
+      syncLocalTaskToGoogle(task);
+    }
+  } else if (state.activeSyncMode === 'WIFI' && state.syncKey && state.syncServerIp) {
+    syncWithLocalServer(isDelete); // isDelete force pushes
+  }
 }
 
 // ==========================================
@@ -687,10 +1102,8 @@ function addTask(title, specificQuadrant = null) {
   saveLocalTasks();
   renderAll();
   
-  // Background local Wi-Fi sync
-  if (state.syncKey && state.syncServerIp) {
-    syncWithLocalServer(false);
-  }
+  // Trigger background sync
+  triggerBackgroundSync(newTask);
   
   showToast(`Added task to ${targetQuadrant === 'INBOX' ? 'Inbox' : targetQuadrant}`);
 }
@@ -722,10 +1135,8 @@ function updateTask(id, updatedFields) {
   saveLocalTasks();
   renderAll();
   
-  // Background local Wi-Fi sync
-  if (state.syncKey && state.syncServerIp) {
-    syncWithLocalServer(false);
-  }
+  // Trigger background sync
+  triggerBackgroundSync(state.tasks[taskIndex]);
   
   showToast('Task updated');
 }
@@ -743,10 +1154,8 @@ function toggleTaskCompletion(id) {
   saveLocalTasks();
   renderAll();
   
-  // Background local Wi-Fi sync
-  if (state.syncKey && state.syncServerIp) {
-    syncWithLocalServer(false);
-  }
+  // Trigger background sync
+  triggerBackgroundSync(task);
 }
 
 /**
@@ -756,14 +1165,13 @@ function deleteTask(id) {
   const taskIndex = state.tasks.findIndex(t => t.id === id);
   if (taskIndex === -1) return;
   
+  const task = state.tasks[taskIndex];
   state.tasks.splice(taskIndex, 1);
   saveLocalTasks();
   renderAll();
   
-  // Background local Wi-Fi sync
-  if (state.syncKey && state.syncServerIp) {
-    syncWithLocalServer(true); // force push deletion
-  }
+  // Trigger background sync
+  triggerBackgroundSync(task, true);
   
   showToast('Task deleted');
 }
@@ -825,10 +1233,8 @@ function moveTask(id, targetQuadrant) {
   saveLocalTasks();
   renderAll();
   
-  // Background local Wi-Fi sync
-  if (state.syncKey && state.syncServerIp) {
-    syncWithLocalServer(false);
-  }
+  // Trigger background sync
+  triggerBackgroundSync(task);
   
   showToast(`Moved task to ${targetQuadrant === 'INBOX' ? 'Inbox' : targetQuadrant}`);
 }
@@ -1126,6 +1532,17 @@ function registerEventListeners() {
   el.syncCenterBtn.addEventListener('click', () => {
     el.syncServerIpInput.value = state.syncServerIp;
     el.syncKeyInput.value = state.syncKey;
+    el.googleClientIdInput.value = state.googleClientId;
+    
+    // Auto-populate Google list select if logged in
+    if (state.googleAccessToken && checkGoogleTokenValidity()) {
+      el.googleTasklistGroup.style.display = 'flex';
+      el.disconnectGoogleBtn.style.display = 'block';
+    } else {
+      el.googleTasklistGroup.style.display = 'none';
+      el.disconnectGoogleBtn.style.display = 'none';
+    }
+    
     openModal(el.syncModal);
   });
   
@@ -1150,12 +1567,42 @@ function registerEventListeners() {
     
     state.syncServerIp = ip;
     state.syncKey = key;
+    state.activeSyncMode = 'WIFI';
+    
     localStorage.setItem('zenmatrix_sync_server', ip);
     localStorage.setItem('zenmatrix_sync_key', key);
+    localStorage.setItem('zenmatrix_sync_mode', 'WIFI');
     
-    showToast('Initiating sync...');
+    showToast('Switched to Wi-Fi Sync mode!');
     await syncWithLocalServer(true);
     closeModal();
+  });
+  
+  // Google OAuth Sync listeners
+  el.googleLoginBtn.addEventListener('click', () => {
+    state.activeSyncMode = 'GOOGLE';
+    localStorage.setItem('zenmatrix_sync_mode', 'GOOGLE');
+    connectGoogleAccount();
+  });
+  
+  el.disconnectGoogleBtn.addEventListener('click', () => {
+    state.activeSyncMode = 'OFFLINE';
+    localStorage.setItem('zenmatrix_sync_mode', 'OFFLINE');
+    disconnectGoogle();
+    closeModal();
+  });
+  
+  // Dropdown list switch triggers google sync automatically
+  el.googleTasklistSelect.addEventListener('change', () => {
+    state.googleTaskListId = el.googleTasklistSelect.value;
+    const selectedOption = el.googleTasklistSelect.options[el.googleTasklistSelect.selectedIndex];
+    state.activeTaskListTitle = selectedOption ? selectedOption.textContent : 'Google Task List';
+    
+    localStorage.setItem('zenmatrix_tasklist_id', state.googleTaskListId);
+    localStorage.setItem('zenmatrix_tasklist_title', state.activeTaskListTitle);
+    
+    showToast(`Switched list to: ${state.activeTaskListTitle}`);
+    syncWithGoogle();
   });
   
   // QR Share Actions
@@ -1180,9 +1627,7 @@ function registerEventListeners() {
       closeModal();
       showToast('Local database cleared.');
       
-      if (state.syncKey && state.syncServerIp) {
-        syncWithLocalServer(true);
-      }
+      triggerBackgroundSync(null, true); // Push empty database deletion
     }
   });
   
@@ -1273,13 +1718,27 @@ window.addEventListener('DOMContentLoaded', () => {
   // Check for incoming shared task links from QR Code scans
   checkImportUrl();
   
-  // Update network connection status and execute initial server sync if configured
-  if (state.syncKey && state.syncServerIp) {
-    updateConnectionStatus(false);
-    syncWithLocalServer(false);
-    startAutoSyncLoop();
+  // Initialize Google SDK (pre-loads credentials if already entered)
+  if (state.googleClientId) {
+    initGoogleIdentityClient();
+  }
+  
+  // Active Sync Onboarding boot routing
+  if (state.activeSyncMode === 'GOOGLE') {
+    if (state.googleAccessToken && checkGoogleTokenValidity()) {
+      syncWithGoogle();
+    } else {
+      updateConnectionStatus();
+    }
+  } else if (state.activeSyncMode === 'WIFI') {
+    if (state.syncKey && state.syncServerIp) {
+      syncWithLocalServer(false);
+      startAutoSyncLoop();
+    } else {
+      updateConnectionStatus();
+    }
   } else {
-    updateConnectionStatus(false);
+    updateConnectionStatus();
   }
 
   // Register Service Worker for PWA Offline execution
