@@ -617,12 +617,19 @@ function connectGoogleAccount() {
     return;
   }
   
+  const clientIdChanged = (state.googleClientId !== inputId);
+  
   state.googleClientId = inputId;
   localStorage.setItem('zenmatrix_client_id', inputId);
   
-  if (checkGoogleTokenValidity()) {
+  if (checkGoogleTokenValidity() && !clientIdChanged) {
     syncWithGoogle();
     return;
+  }
+  
+  // Force recreation of token client if client ID changed
+  if (clientIdChanged) {
+    tokenClient = null;
   }
 
   if (tokenClient) {
@@ -688,7 +695,7 @@ async function syncWithGoogle() {
   
   try {
     // Step 1: Ensure active tasklist exists
-    let taskLists = await googleApiFetch('https://tasks.googleapis.com/v1/users/@me/lists');
+    let taskLists = await googleApiFetch('https://tasks.googleapis.com/tasks/v1/users/@me/lists');
     const lists = taskLists.items || [];
     
     // Find matching list or create a default "ZenMatrix"
@@ -703,14 +710,14 @@ async function syncWithGoogle() {
     
     if (!targetList) {
       // Create new list
-      targetList = await googleApiFetch('https://tasks.googleapis.com/v1/users/@me/lists', {
+      targetList = await googleApiFetch('https://tasks.googleapis.com/tasks/v1/users/@me/lists', {
         method: 'POST',
         body: JSON.stringify({ title: 'ZenMatrix' })
       });
       showToast('Created Google Tasks list: ZenMatrix');
       
       // Refresh the lists to include the newly created one
-      taskLists = await googleApiFetch('https://tasks.googleapis.com/v1/users/@me/lists');
+      taskLists = await googleApiFetch('https://tasks.googleapis.com/tasks/v1/users/@me/lists');
     }
     
     state.googleTaskListId = targetList.id;
@@ -723,7 +730,7 @@ async function syncWithGoogle() {
     populateTaskListSelect(taskLists.items || [targetList]);
     
     // Step 2: Fetch remote tasks
-    const remoteUrl = `https://tasks.googleapis.com/v1/lists/${state.googleTaskListId}/tasks?showCompleted=true&showHidden=true&maxResults=100`;
+    const remoteUrl = `https://tasks.googleapis.com/tasks/v1/lists/${state.googleTaskListId}/tasks?showCompleted=true&showHidden=true&maxResults=100`;
     const remoteTasksData = await googleApiFetch(remoteUrl);
     const remoteTasks = remoteTasksData.items || [];
     
@@ -830,14 +837,14 @@ async function syncLocalTaskToGoogle(localTask) {
   
   try {
     if (localTask.googleTaskId) {
-      const url = `https://tasks.googleapis.com/v1/lists/${state.googleTaskListId}/tasks/${localTask.googleTaskId}`;
+      const url = `https://tasks.googleapis.com/tasks/v1/lists/${state.googleTaskListId}/tasks/${localTask.googleTaskId}`;
       const response = await googleApiFetch(url, {
         method: 'PATCH',
         body: JSON.stringify(taskBody)
       });
       localTask.updated = new Date(response.updated).getTime();
     } else {
-      const url = `https://tasks.googleapis.com/v1/lists/${state.googleTaskListId}/tasks`;
+      const url = `https://tasks.googleapis.com/tasks/v1/lists/${state.googleTaskListId}/tasks`;
       const response = await googleApiFetch(url, {
         method: 'POST',
         body: JSON.stringify(taskBody)
@@ -856,7 +863,7 @@ async function syncLocalTaskToGoogle(localTask) {
 async function deleteGoogleTask(googleTaskId) {
   if (!state.googleAccessToken || !googleTaskId) return;
   try {
-    const url = `https://tasks.googleapis.com/v1/lists/${state.googleTaskListId}/tasks/${googleTaskId}`;
+    const url = `https://tasks.googleapis.com/tasks/v1/lists/${state.googleTaskListId}/tasks/${googleTaskId}`;
     await googleApiFetch(url, { method: 'DELETE' });
   } catch (err) {
     console.error('Failed to delete Google task:', err);
