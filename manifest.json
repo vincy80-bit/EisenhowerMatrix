@@ -1,0 +1,26 @@
+{
+  "name": "ZenMatrix - Eisenhower Task Manager",
+  "short_name": "ZenMatrix",
+  "description": "Premium Eisenhower Matrix Task Manager with drag-and-drop and Google Tasks integration",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b0f19",
+  "theme_color": "#0b0f19",
+  "orientation": "portrait",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
