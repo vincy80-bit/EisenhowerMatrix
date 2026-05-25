@@ -26,7 +26,7 @@
     
     <div class="header-controls">
       <!-- Sync State Indicator -->
-      <div id="sync-spinner" style="display: none; align-items: center; justify-content: center;" title="Syncing with Google Tasks...">
+      <div id="sync-spinner" style="display: none; align-items: center; justify-content: center;" title="Syncing tasks offline...">
         <svg class="animate-spin" width="16" height="16" fill="none" viewBox="0 0 24 24" style="animation: spin 1s linear infinite; margin-right: 0.5rem; color: var(--accent);">
           <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" style="opacity: 0.25;"></circle>
           <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" style="opacity: 0.75;"></path>
@@ -43,15 +43,12 @@
         </svg>
       </button>
 
-      <!-- Google Connect Button -->
-      <button class="btn" id="google-login-btn" title="Sync with Google Tasks">
-        <svg width="18" height="18" viewBox="0 0 24 24">
-          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-          <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l3.66-2.85z"/>
-          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.85c.87-2.6 3.3-4.53 6.16-4.53z"/>
+      <!-- Sync Center Button -->
+      <button class="btn" id="sync-center-btn" title="Sync & Backup Center">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 12c0-1.232-.046-2.453-.138-3.662a4.006 4.006 0 00-3.7-3.7 48.656 48.656 0 00-7.324 0 4.006 4.006 0 00-3.7 3.7c-.017.22-.032.441-.046.662M19.5 12l3-3m-3 3l-3-3M3 12c0 1.232.046 2.453.138 3.662a4.006 4.006 0 003.7 3.7 48.656 48.656 0 007.324 0 4.006 4.006 0 003.7-3.7c.017-.22.032-.441.046-.662M3 12l-3 3m3-3l3 3"></path>
         </svg>
-        <span>Connect Google</span>
+        <span>Sync Center</span>
       </button>
 
       <!-- Inbox Toggle -->
@@ -61,14 +58,6 @@
         </svg>
         <span>Inbox</span>
         <span class="task-count" id="inbox-count" style="display: none;">0</span>
-      </button>
-
-      <!-- Settings Button -->
-      <button class="btn btn-icon" id="settings-btn" title="Settings & Integration Configuration" aria-label="Settings">
-        <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.43l-1.003.828c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.43l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.991l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.28z"></path>
-          <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-        </svg>
       </button>
     </div>
   </header>
@@ -177,51 +166,98 @@
   <!-- Background Overlay for Modal / Sidebar -->
   <div class="overlay" id="app-overlay"></div>
 
-  <!-- Settings Modal (Google Integration / Setup Setup) -->
-  <div class="modal" id="settings-modal">
+  <!-- Sync & Backup Center Modal -->
+  <div class="modal" id="sync-modal">
     <div class="modal-header">
-      <h3 class="modal-title">Settings & Integration</h3>
-      <button class="btn btn-icon task-btn modal-close-btn" aria-label="Close Settings">
+      <h3 class="modal-title">Sync & Backup Center</h3>
+      <button class="btn btn-icon task-btn modal-close-btn" aria-label="Close Sync Modal">
         <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path>
         </svg>
       </button>
     </div>
-    <div class="modal-body">
-      
-      <div class="form-group">
-        <label for="google-client-id">Google Client ID</label>
-        <input type="text" class="form-control" id="google-client-id" placeholder="123456789-abcdefg.apps.googleusercontent.com">
-      </div>
-
-      <div class="form-group" id="google-tasklist-group" style="display: none;">
-        <label for="google-tasklist-select">Active Google Task List</label>
-        <select class="form-control" id="google-tasklist-select">
-          <!-- Populated dynamically -->
-        </select>
-      </div>
-
-      <div class="info-alert">
-        <strong>How to get a Google Client ID:</strong>
-        <ol>
-          <li>Go to the <a href="https://console.cloud.google.com/" target="_blank" style="color: var(--accent); text-decoration: underline;">Google Cloud Console</a>.</li>
-          <li>Create a project and go to the <strong>API Library</strong> to enable the <strong>Google Tasks API</strong>.</li>
-          <li>Set up your <strong>OAuth Consent Screen</strong> (External) and add scope `.../auth/tasks`.</li>
-          <li>Go to <strong>Credentials</strong>, click <strong>Create Credentials</strong> &rarr; <strong>OAuth Client ID</strong>.</li>
-          <li>Select <strong>Web Application</strong> as the application type.</li>
-          <li>Add <code>http://localhost</code> or the matching origin URL to <strong>Authorized JavaScript origins</strong>.</li>
-          <li>Copy your Client ID and paste it above!</li>
-        </ol>
-      </div>
-
-      <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;">
-        <button class="btn" id="disconnect-google-btn" style="display: none; border-color: var(--q1-color); color: var(--q1-color);">Disconnect Google Account</button>
-        <button class="btn" id="wipe-local-btn" style="border-color: var(--q1-color); color: var(--q1-color); opacity: 0.7;">Clear Local Task Cache</button>
-      </div>
-
+    
+    <div class="modal-tabs">
+      <button class="tab-btn active" data-tab="tab-wifi">Wi-Fi Sync</button>
+      <button class="tab-btn" data-tab="tab-qr">QR Share</button>
+      <button class="tab-btn" data-tab="tab-file">File Backup</button>
     </div>
-    <div class="modal-footer">
-      <button class="btn" id="save-settings-btn" style="background: var(--accent); color: white; border-color: transparent;">Save Changes</button>
+
+    <div class="modal-body" style="margin-top: 1rem;">
+      
+      <!-- Tab 1: Wi-Fi Sync -->
+      <div class="tab-content active" id="tab-wifi">
+        <div class="form-group">
+          <label for="sync-server-ip">Sync Server IP</label>
+          <input type="text" class="form-control" id="sync-server-ip" placeholder="http://192.168.1.50:3000">
+        </div>
+        <div class="form-group">
+          <label for="sync-key">Sync Key</label>
+          <div style="display: flex; gap: 0.5rem;">
+            <input type="text" class="form-control" id="sync-key" placeholder="Enter key (e.g. Z-8B3E9)">
+            <button class="btn" id="generate-key-btn" style="white-space: nowrap;">Generate</button>
+          </div>
+        </div>
+        
+        <div class="info-alert" style="margin-top: 0.5rem;">
+          <strong>Wi-Fi Sync Instructions:</strong>
+          <ol>
+            <li>Run <code>node sync-server.js</code> on your computer.</li>
+            <li>Find your computer's local IP address (e.g. <code>192.168.1.50</code>).</li>
+            <li>Enter <code>http://&lt;IP&gt;:3000</code> in the Server IP input above.</li>
+            <li>Generate a Sync Key, then click <strong>Sync Now</strong>! Use the same Key on your phone to instantly sync both devices over local Wi-Fi.</li>
+          </ol>
+        </div>
+        
+        <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
+          <button class="btn" id="test-connection-btn" style="flex: 1;">Test Server</button>
+          <button class="btn btn-primary" id="wifi-sync-now-btn" style="flex: 1;">Sync Now</button>
+        </div>
+      </div>
+
+      <!-- Tab 2: QR Share -->
+      <div class="tab-content" id="tab-qr" style="display: none; align-items: center; flex-direction: column; gap: 1rem; text-align: center;">
+        <p style="font-size: 0.85rem; color: var(--text-secondary);">
+          Scan this QR code with another device's camera to instantly import your tasks.
+        </p>
+        
+        <div id="qr-code-container" style="background: white; padding: 1rem; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; min-height: 200px; min-width: 200px; border: 1px solid var(--border-color);">
+          <div style="color: #64748b; font-size: 0.85rem;" id="qr-placeholder">No QR Code Generated</div>
+          <img id="qr-code-img" style="display: none; max-width: 200px; max-height: 200px;" alt="ZenMatrix Sync QR Code">
+        </div>
+        
+        <button class="btn btn-primary" id="generate-qr-btn" style="width: 100%;">Generate Share QR Code</button>
+      </div>
+
+      <!-- Tab 3: File Backup -->
+      <div class="tab-content" id="tab-file" style="display: none; flex-direction: column; gap: 1rem;">
+        <p style="font-size: 0.85rem; color: var(--text-secondary);">
+          Export your complete database as a backup file, or restore tasks from a previously saved JSON file.
+        </p>
+        
+        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+          <button class="btn" id="export-backup-btn" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; width: 100%;">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"></path>
+            </svg>
+            <span>Export ZenMatrix Backup</span>
+          </button>
+          
+          <div style="border: 2px dashed var(--border-color); padding: 1.5rem; border-radius: var(--radius-md); text-align: center; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.5rem; background: rgba(0,0,0,0.08);">
+            <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="color: var(--text-muted);">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z"></path>
+            </svg>
+            <span style="font-size: 0.85rem; color: var(--text-primary);">Restore Backup File</span>
+            <input type="file" id="import-backup-file" accept=".json" style="position: absolute; top:0; left:0; width:100%; height:100%; opacity:0; cursor:pointer;">
+            <span style="font-size: 0.75rem; color: var(--text-muted);">Click to browse `.json` file</span>
+          </div>
+        </div>
+        
+        <div style="border-top: 1px solid var(--border-color); padding-top: 0.75rem;">
+          <button class="btn" id="wipe-local-btn" style="width: 100%; border-color: var(--q1-color); color: var(--q1-color);">Wipe All Local Tasks</button>
+        </div>
+      </div>
+
     </div>
   </div>
 

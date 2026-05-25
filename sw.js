@@ -43,8 +43,12 @@ self.addEventListener('activate', (event) => {
 
 // Fetch Event - Intercept resource requests to deliver offline capability
 self.addEventListener('fetch', (event) => {
-  // Let Google API requests pass through to the network directly
-  if (event.request.url.includes('googleapis.com') || event.request.url.includes('accounts.google.com')) {
+  // Bypass caching for external Google API and local sync endpoints
+  if (
+    event.request.url.includes('googleapis.com') || 
+    event.request.url.includes('accounts.google.com') || 
+    event.request.url.includes('/sync/')
+  ) {
     return;
   }
 

@@ -819,6 +819,50 @@ textarea.form-control {
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* Tabbed Navigation inside Modals */
+.modal-tabs {
+  display: flex;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+  padding-bottom: 2px;
+}
+
+.tab-btn {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-family: 'Outfit', sans-serif;
+  font-weight: 500;
+  font-size: 0.95rem;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
+.tab-btn:hover {
+  color: var(--text-primary);
+  background: var(--accent-light);
+}
+
+.tab-btn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.tab-content {
+  display: none;
+  animation: fade-in var(--transition-normal);
+}
+
+.tab-content.active {
+  display: block;
+}
+
 /* Responsive Styles */
 @media (max-width: 1024px) {
   .matrix-grid {

@@ -20,13 +20,11 @@ const TAG_REGEX = /(?:#(q1|q2|q3|q4|do|schedule|delegate|eliminate))\b/gi;
 // Application State
 const state = {
   tasks: [],
-  googleClientId: localStorage.getItem('zenmatrix_client_id') || '',
-  googleTaskListId: localStorage.getItem('zenmatrix_tasklist_id') || '',
-  googleAccessToken: localStorage.getItem('zenmatrix_access_token') || '',
-  googleTokenExpiry: parseInt(localStorage.getItem('zenmatrix_token_expiry') || '0', 10),
-  activeTaskListTitle: localStorage.getItem('zenmatrix_tasklist_title') || '',
+  syncServerIp: localStorage.getItem('zenmatrix_sync_server') || 'http://localhost:3000',
+  syncKey: localStorage.getItem('zenmatrix_sync_key') || '',
+  lastSyncTimestamp: parseInt(localStorage.getItem('zenmatrix_last_sync') || '0', 10),
   isSyncing: false,
-  isLoggedIn: false
+  isServerConnected: false
 };
 
 // ==========================================
@@ -40,10 +38,9 @@ const el = {
   themeToggleBtn: document.getElementById('theme-toggle-btn'),
   themeDarkIcon: document.getElementById('theme-dark-icon'),
   themeLightIcon: document.getElementById('theme-light-icon'),
-  googleLoginBtn: document.getElementById('google-login-btn'),
+  syncCenterBtn: document.getElementById('sync-center-btn'),
   inboxToggleBtn: document.getElementById('inbox-toggle-btn'),
   inboxCount: document.getElementById('inbox-count'),
-  settingsBtn: document.getElementById('settings-btn'),
   
   // Lists and Counts
   listQ1: document.getElementById('list-q1'),
@@ -66,14 +63,23 @@ const el = {
   globalAddInput: document.getElementById('global-add-input'),
   globalAddBtn: document.getElementById('global-add-btn'),
   
-  // Settings Modal
-  settingsModal: document.getElementById('settings-modal'),
-  googleClientIdInput: document.getElementById('google-client-id'),
-  googleTasklistSelect: document.getElementById('google-tasklist-select'),
-  googleTasklistGroup: document.getElementById('google-tasklist-group'),
-  disconnectGoogleBtn: document.getElementById('disconnect-google-btn'),
+  // Sync Center Modal & Elements
+  syncModal: document.getElementById('sync-modal'),
+  syncServerIpInput: document.getElementById('sync-server-ip'),
+  syncKeyInput: document.getElementById('sync-key'),
+  generateKeyBtn: document.getElementById('generate-key-btn'),
+  testConnectionBtn: document.getElementById('test-connection-btn'),
+  wifiSyncNowBtn: document.getElementById('wifi-sync-now-btn'),
+  
+  // QR Share
+  generateQrBtn: document.getElementById('generate-qr-btn'),
+  qrCodeImg: document.getElementById('qr-code-img'),
+  qrPlaceholder: document.getElementById('qr-placeholder'),
+  
+  // File Backups
+  exportBackupBtn: document.getElementById('export-backup-btn'),
+  importBackupFile: document.getElementById('import-backup-file'),
   wipeLocalBtn: document.getElementById('wipe-local-btn'),
-  saveSettingsBtn: document.getElementById('save-settings-btn'),
   
   // Task Edit Modal
   taskEditModal: document.getElementById('task-edit-modal'),
@@ -261,92 +267,8 @@ function loadLocalTasks() {
 }
 
 // ==========================================
-// 5. GOOGLE IDENTITY SERVICES & REST API
+// 5. OFFLINE SYNC, QR SHARE, & FILE BACKUP
 // ==========================================
-
-let tokenClient = null;
-
-/**
- * Checks if Google login token is valid.
- */
-function checkTokenValidity() {
-  if (state.googleAccessToken && state.googleTokenExpiry > Date.now()) {
-    state.isLoggedIn = true;
-    updateConnectionStatus(true);
-    return true;
-  }
-  state.isLoggedIn = false;
-  state.googleAccessToken = '';
-  localStorage.removeItem('zenmatrix_access_token');
-  updateConnectionStatus(false);
-  return false;
-}
-
-/**
- * Initializes Google OAuth identity client.
- */
-function initGoogleIdentityClient() {
-  if (!state.googleClientId) {
-    updateConnectionStatus(false);
-    return;
-  }
-
-  try {
-    // If the library is not yet loaded, wait and try again
-    if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
-      setTimeout(initGoogleIdentityClient, 500);
-      return;
-    }
-    
-    tokenClient = google.accounts.oauth2.initTokenClient({
-      client_id: state.googleClientId,
-      scope: 'https://www.googleapis.com/auth/tasks',
-      callback: (tokenResponse) => {
-        if (tokenResponse.error !== undefined) {
-          console.error('Google Sign-in Error:', tokenResponse);
-          showToast('Google login failed', true);
-          return;
-        }
-        
-        state.googleAccessToken = tokenResponse.access_token;
-        state.googleTokenExpiry = Date.now() + (tokenResponse.expires_in * 1000);
-        state.isLoggedIn = true;
-        
-        localStorage.setItem('zenmatrix_access_token', state.googleAccessToken);
-        localStorage.setItem('zenmatrix_token_expiry', state.googleTokenExpiry);
-        
-        showToast('Successfully connected to Google!');
-        updateConnectionStatus(true);
-        
-        // Fetch task lists and sync
-        syncWithGoogle();
-      },
-    });
-  } catch (err) {
-    console.error('Error initializing Google GSI client:', err);
-  }
-}
-
-/**
- * Logs out of Google Account locally.
- */
-function disconnectGoogle() {
-  state.isLoggedIn = false;
-  state.googleAccessToken = '';
-  state.googleTaskListId = '';
-  state.activeTaskListTitle = '';
-  localStorage.removeItem('zenmatrix_access_token');
-  localStorage.removeItem('zenmatrix_token_expiry');
-  localStorage.removeItem('zenmatrix_tasklist_id');
-  localStorage.removeItem('zenmatrix_tasklist_title');
-  
-  updateConnectionStatus(false);
-  el.googleTasklistGroup.style.display = 'none';
-  el.disconnectGoogleBtn.style.display = 'none';
-  el.googleLoginBtn.querySelector('span').textContent = 'Connect Google';
-  showToast('Google account disconnected');
-  renderAll();
-}
 
 /**
  * Simple Toast visual notification.
@@ -386,288 +308,356 @@ function showToast(message, isError = false) {
  * Updates UI to show connection status
  */
 function updateConnectionStatus(isConnected) {
+  state.isServerConnected = isConnected;
   if (isConnected) {
-    el.connectionStatus.textContent = state.activeTaskListTitle 
-      ? `Syncing: ${state.activeTaskListTitle}`
-      : 'Google Sync Enabled';
+    el.connectionStatus.textContent = 'Wi-Fi Synced';
     el.connectionStatus.style.borderColor = '#10b981';
     el.connectionStatus.style.color = '#10b981';
-    el.googleLoginBtn.querySelector('span').textContent = 'Synced';
-    el.googleLoginBtn.style.borderColor = '#10b981';
+    el.syncCenterBtn.style.borderColor = '#10b981';
+  } else if (state.syncKey && state.syncServerIp) {
+    el.connectionStatus.textContent = 'Server Offline';
+    el.connectionStatus.style.borderColor = 'hsl(5, 90%, 60%)';
+    el.connectionStatus.style.color = 'hsl(5, 90%, 60%)';
+    el.syncCenterBtn.style.borderColor = 'hsl(5, 90%, 60%)';
   } else {
     el.connectionStatus.textContent = 'Offline Mode';
     el.connectionStatus.style.borderColor = 'var(--border-color)';
     el.connectionStatus.style.color = 'var(--text-muted)';
-    el.googleLoginBtn.querySelector('span').textContent = 'Connect Google';
-    el.googleLoginBtn.style.borderColor = 'var(--border-color)';
+    el.syncCenterBtn.style.borderColor = 'var(--border-color)';
   }
 }
 
 /**
- * Trigger OAuth login token retrieval.
+ * Tests connection with the local sync server
  */
-function connectGoogleAccount() {
-  if (!state.googleClientId) {
-    // Open settings and prompt for ID
-    openModal(el.settingsModal);
-    showToast('Please enter your Google Client ID first!', true);
+async function testServerConnection() {
+  const ip = el.syncServerIpInput.value.trim();
+  if (!ip) {
+    showToast('Please enter a Server IP address', true);
     return;
   }
   
-  if (checkTokenValidity()) {
-    syncWithGoogle();
-    return;
-  }
-
-  if (tokenClient) {
-    tokenClient.requestAccessToken({ prompt: 'consent' });
-  } else {
-    initGoogleIdentityClient();
-    setTimeout(() => {
-      if (tokenClient) tokenClient.requestAccessToken({ prompt: 'consent' });
-      else showToast('Google Identity library loading... Try again.', true);
-    }, 600);
+  showToast('Testing server connection...');
+  try {
+    const res = await fetch(`${ip}/sync/test`, { method: 'GET' });
+    if (res.ok) {
+      showToast('Server connected successfully!');
+      updateConnectionStatus(true);
+    } else {
+      throw new Error(`Status ${res.status}`);
+    }
+  } catch (err) {
+    console.error('Server test failed:', err);
+    showToast('Failed to connect to local server', true);
+    updateConnectionStatus(false);
   }
 }
 
 /**
- * Custom Fetch client that automatically appends Auth Header.
+ * Real-time Bidirectional local Wi-Fi sync.
  */
-async function googleApiFetch(url, options = {}) {
-  if (!state.googleAccessToken) {
-    throw new Error('No Google Access Token available');
-  }
-  
-  options.headers = {
-    ...options.headers,
-    'Authorization': `Bearer ${state.googleAccessToken}`,
-    'Content-Type': 'application/json'
-  };
-  
-  const response = await fetch(url, options);
-  
-  if (response.status === 401) {
-    // Access token expired, log out
-    disconnectGoogle();
-    throw new Error('Google authentication expired. Please reconnect.');
-  }
-  
-  if (!response.ok) {
-    const errorBody = await response.text();
-    console.error('Google API Error Response:', errorBody);
-    throw new Error(`Google API returned status ${response.status}`);
-  }
-  
-  if (response.status === 204) return null; // No Content
-  return await response.json();
-}
-
-/**
- * Core Synchronization Engine.
- * Fetches Google Tasks, merges with Local storage.
- */
-async function syncWithGoogle() {
+async function syncWithLocalServer(force = false) {
   if (state.isSyncing) return;
-  if (!checkTokenValidity()) return;
+  if (!state.syncKey || !state.syncServerIp) {
+    updateConnectionStatus(false);
+    return;
+  }
   
   state.isSyncing = true;
   el.syncSpinner.style.display = 'flex';
   
   try {
-    // Step 1: Ensure active tasklist exists
-    let taskLists = await googleApiFetch('https://tasks.googleapis.com/v1/users/@me/lists');
-    const lists = taskLists.items || [];
+    const url = `${state.syncServerIp}/sync/${state.syncKey}`;
+    const res = await fetch(url, { method: 'GET' });
     
-    // Find matching list or create a default "ZenMatrix"
-    let targetList = null;
-    if (state.googleTaskListId) {
-      targetList = lists.find(l => l.id === state.googleTaskListId);
+    if (!res.ok) {
+      throw new Error(`Sync server returned status ${res.status}`);
     }
     
-    if (!targetList) {
-      // Find by title "ZenMatrix"
-      targetList = lists.find(l => l.title === 'ZenMatrix');
-    }
+    const remoteData = await res.json();
+    const remoteTasks = remoteData.tasks || [];
+    const remoteTimestamp = remoteData.timestamp || 0;
     
-    if (!targetList) {
-      // Create new list
-      targetList = await googleApiFetch('https://tasks.googleapis.com/v1/users/@me/lists', {
-        method: 'POST',
-        body: JSON.stringify({ title: 'ZenMatrix' })
-      });
-      showToast('Created Google Tasks list: ZenMatrix');
+    // Compare timestamps to decide merge direction
+    if (remoteTimestamp > state.lastSyncTimestamp) {
+      console.log('[SyncEngine] Remote is newer. Merging remote tasks.');
       
-      // Refresh the lists to include the newly created one
-      taskLists = await googleApiFetch('https://tasks.googleapis.com/v1/users/@me/lists');
-    }
-    
-    state.googleTaskListId = targetList.id;
-    state.activeTaskListTitle = targetList.title;
-    localStorage.setItem('zenmatrix_tasklist_id', state.googleTaskListId);
-    localStorage.setItem('zenmatrix_tasklist_title', state.activeTaskListTitle);
-    
-    updateConnectionStatus(true);
-    populateTaskListSelect(taskLists.items || [targetList]);
-    
-    // Step 2: Fetch remote tasks
-    // Fetch both completed and active tasks
-    const remoteUrl = `https://tasks.googleapis.com/v1/lists/${state.googleTaskListId}/tasks?showCompleted=true&showHidden=true&maxResults=100`;
-    const remoteTasksData = await googleApiFetch(remoteUrl);
-    const remoteTasks = remoteTasksData.items || [];
-    
-    // Step 3: Merge algorithm
-    let mergedTasks = [...state.tasks];
-    
-    for (const gTask of remoteTasks) {
-      if (gTask.deleted) continue;
+      // Merge remote tasks into local list
+      let mergedTasks = [...state.tasks];
       
-      const { cleanedTitle, quadrant } = parseTitleTags(gTask.title);
-      const isCompleted = gTask.status === 'completed';
-      const remoteUpdated = gTask.updated ? new Date(gTask.updated).getTime() : 0;
-      
-      // Look for existing local task matching Google Task ID
-      let localIndex = mergedTasks.findIndex(t => t.googleTaskId === gTask.id);
-      
-      if (localIndex === -1) {
-        // If not found by Google ID, match by title + status (offline creation match)
-        localIndex = mergedTasks.findIndex(t => !t.googleTaskId && t.title === cleanedTitle);
-      }
-      
-      if (localIndex !== -1) {
-        // Task exists. Compare updated timestamp to determine sync winner.
-        const localTask = mergedTasks[localIndex];
+      for (const rTask of remoteTasks) {
+        const localIdx = mergedTasks.findIndex(t => t.id === rTask.id);
         
-        if (remoteUpdated > (localTask.updated || 0)) {
-          // Google's version is newer
-          mergedTasks[localIndex] = {
-            ...localTask,
-            googleTaskId: gTask.id,
-            title: cleanedTitle,
-            notes: gTask.notes || '',
-            quadrant: quadrant || 'INBOX',
-            due: formatInputDate(gTask.due),
-            completed: isCompleted,
-            updated: remoteUpdated
-          };
-        } else if (remoteUpdated < (localTask.updated || 0)) {
-          // Local task is newer. Push update to Google Tasks.
-          await syncLocalTaskToGoogle(localTask);
-        } else {
-          // Synchronized already. Just link ID if missing
-          if (!localTask.googleTaskId) {
-            localTask.googleTaskId = gTask.id;
+        if (localIdx !== -1) {
+          const localTask = mergedTasks[localIdx];
+          // Take the newest version
+          if ((rTask.updated || 0) > (localTask.updated || 0)) {
+            mergedTasks[localIdx] = rTask;
           }
+        } else {
+          // Add completely new remote task
+          mergedTasks.push(rTask);
         }
-      } else {
-        // Completely new remote task. Add to local list.
-        mergedTasks.push({
-          id: generateUUID(),
-          googleTaskId: gTask.id,
-          title: cleanedTitle,
-          notes: gTask.notes || '',
-          quadrant: quadrant || 'INBOX',
-          due: formatInputDate(gTask.due),
-          completed: isCompleted,
-          updated: remoteUpdated || Date.now()
-        });
       }
-    }
-    
-    // Push offline tasks that have never been uploaded to Google Tasks
-    for (const localTask of mergedTasks) {
-      if (!localTask.googleTaskId) {
-        await syncLocalTaskToGoogle(localTask);
+      
+      state.tasks = mergedTasks;
+      state.lastSyncTimestamp = remoteTimestamp;
+      localStorage.setItem('zenmatrix_last_sync', state.lastSyncTimestamp);
+      saveLocalTasks();
+      updateConnectionStatus(true);
+      showToast('Tasks synchronized from network!');
+      renderAll();
+      
+    } else if (remoteTimestamp < state.lastSyncTimestamp || force || hasNewerLocalTasks(remoteTasks)) {
+      console.log('[SyncEngine] Local has changes. Uploading to server.');
+      
+      const payload = {
+        tasks: state.tasks,
+        timestamp: Date.now()
+      };
+      
+      const uploadRes = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      
+      if (!uploadRes.ok) {
+        throw new Error('Upload failed');
       }
+      
+      state.lastSyncTimestamp = payload.timestamp;
+      localStorage.setItem('zenmatrix_last_sync', state.lastSyncTimestamp);
+      updateConnectionStatus(true);
+      if (force) showToast('Sync pushed to local network.');
+    } else {
+      // Identical timestamps, up to date!
+      updateConnectionStatus(true);
     }
-    
-    state.tasks = mergedTasks;
-    saveLocalTasks();
-    showToast('Google tasks synced successfully!');
     
   } catch (err) {
-    console.error('Failed to sync with Google Tasks API:', err);
-    const errMsg = err.message || 'Unknown error';
-    if (errMsg.includes('403')) {
-      showToast('Sync Failed: Google Tasks API is NOT enabled in your Cloud Console!', true);
-    } else {
-      showToast(`Sync Failed: ${errMsg}`, true);
-    }
+    console.error('Local sync failed:', err);
+    updateConnectionStatus(false);
   } finally {
     state.isSyncing = false;
     el.syncSpinner.style.display = 'none';
-    renderAll();
   }
 }
 
 /**
- * Creates or updates a specific task on Google Tasks in the background.
+ * Checks if local task list has newer modifications than remote tasks list.
  */
-async function syncLocalTaskToGoogle(localTask) {
-  if (!state.googleAccessToken) return;
-  
-  const formattedTitle = formatTitleWithTag(localTask.title, localTask.quadrant);
-  const taskBody = {
-    title: formattedTitle,
-    notes: localTask.notes || '',
-    status: localTask.completed ? 'completed' : 'needsAction',
-    due: localTask.due ? new Date(localTask.due).toISOString() : null
+function hasNewerLocalTasks(remoteTasks) {
+  if (state.tasks.length !== remoteTasks.length) return true;
+  for (const localTask of state.tasks) {
+    const remote = remoteTasks.find(t => t.id === localTask.id);
+    if (!remote || (localTask.updated || 0) > (remote.updated || 0)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Auto-sync background loop. Checks every 10 seconds.
+ */
+function startAutoSyncLoop() {
+  setInterval(() => {
+    if (state.syncKey && state.syncServerIp && !state.isSyncing) {
+      syncWithLocalServer(false);
+    }
+  }, 10000);
+}
+
+// ==========================================
+// FILE BACKUP: EXPORT & IMPORT
+// ==========================================
+
+/**
+ * Exports current tasks to a downloadable JSON file.
+ */
+function exportTasksToFile() {
+  const payload = {
+    tasks: state.tasks,
+    exportedAt: new Date().toISOString(),
+    version: '1.0'
   };
   
-  try {
-    if (localTask.googleTaskId) {
-      // Update existing task
-      const url = `https://tasks.googleapis.com/v1/lists/${state.googleTaskListId}/tasks/${localTask.googleTaskId}`;
-      const response = await googleApiFetch(url, {
-        method: 'PATCH',
-        body: JSON.stringify(taskBody)
-      });
-      localTask.updated = new Date(response.updated).getTime();
-    } else {
-      // Create new task
-      const url = `https://tasks.googleapis.com/v1/lists/${state.googleTaskListId}/tasks`;
-      const response = await googleApiFetch(url, {
-        method: 'POST',
-        body: JSON.stringify(taskBody)
-      });
-      localTask.googleTaskId = response.id;
-      localTask.updated = new Date(response.updated).getTime();
-    }
-  } catch (err) {
-    console.error(`Failed to push task "${localTask.title}" to Google Tasks:`, err);
-  }
-}
-
-/**
- * Deletes a task from Google Tasks.
- */
-async function deleteGoogleTask(googleTaskId) {
-  if (!state.googleAccessToken || !googleTaskId) return;
-  try {
-    const url = `https://tasks.googleapis.com/v1/lists/${state.googleTaskListId}/tasks/${googleTaskId}`;
-    await googleApiFetch(url, { method: 'DELETE' });
-  } catch (err) {
-    console.error('Failed to delete Google task:', err);
-  }
-}
-
-/**
- * Populates lists dropdown in settings.
- */
-function populateTaskListSelect(lists) {
-  el.googleTasklistSelect.innerHTML = '';
-  lists.forEach(list => {
-    const option = document.createElement('option');
-    option.value = list.id;
-    option.textContent = list.title;
-    if (list.id === state.googleTaskListId) {
-      option.selected = true;
-    }
-    el.googleTasklistSelect.appendChild(option);
-  });
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
   
-  el.googleTasklistGroup.style.display = 'flex';
-  el.disconnectGoogleBtn.style.display = 'block';
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `zenmatrix_backup_${Date.now()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  
+  // Clean up
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 0);
+  
+  showToast('Task backup exported successfully!');
 }
+
+/**
+ * Restores tasks from an uploaded JSON backup file.
+ */
+function importTasksFromFile(file) {
+  if (!file) return;
+  
+  const reader = new FileReader();
+  reader.onload = function(event) {
+    try {
+      const backup = JSON.parse(event.target.result);
+      if (!backup.tasks || !Array.isArray(backup.tasks)) {
+        showToast('Invalid backup file structure!', true);
+        return;
+      }
+      
+      if (confirm(`Do you want to merge ${backup.tasks.length} tasks from this backup file? Existing identical tasks will be updated.`)) {
+        let merged = [...state.tasks];
+        
+        backup.tasks.forEach(bTask => {
+          const existingIdx = merged.findIndex(t => t.id === bTask.id);
+          if (existingIdx !== -1) {
+            // Keep the newest
+            if ((bTask.updated || 0) > (merged[existingIdx].updated || 0)) {
+              merged[existingIdx] = bTask;
+            }
+          } else {
+            merged.push(bTask);
+          }
+        });
+        
+        state.tasks = merged;
+        saveLocalTasks();
+        renderAll();
+        showToast('Backup restored and merged!');
+        
+        // Push sync if connected
+        if (state.syncKey && state.syncServerIp) {
+          syncWithLocalServer(true);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to import backup:', err);
+      showToast('Malformed backup file!', true);
+    }
+  };
+  reader.readAsText(file);
+}
+
+// ==========================================
+// QR CODE SHARE & URI PARSING
+// ==========================================
+
+/**
+ * Compresses task array and generates sharing QR Code.
+ */
+function generateQrCode() {
+  if (state.tasks.length === 0) {
+    showToast('Create some tasks first to share!', true);
+    return;
+  }
+  
+  showToast('Generating QR code...');
+  
+  // Minimize task structure to fit comfortably inside a standard QR code URL limit
+  const minified = state.tasks.slice(0, 30).map(t => [
+    t.title,
+    t.notes || '',
+    t.quadrant,
+    t.due || '',
+    t.completed ? 1 : 0
+  ]);
+  
+  try {
+    // Stringify and Base64 compress
+    const jsonStr = JSON.stringify(minified);
+    const compressed = btoa(encodeURIComponent(jsonStr));
+    
+    // Construct sharing link
+    const importUrl = `${window.location.origin}${window.location.pathname}?import=${compressed}`;
+    
+    // Request QR Code from free public qr-code API
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(importUrl)}`;
+    
+    el.qrPlaceholder.style.display = 'none';
+    el.qrCodeImg.src = qrUrl;
+    el.qrCodeImg.style.display = 'block';
+    
+    showToast('QR Code generated successfully!');
+  } catch (err) {
+    console.error('Failed to compress QR data:', err);
+    showToast('Failed to generate QR Code', true);
+  }
+}
+
+/**
+ * Checks for incoming import strings in URL queries on startup.
+ */
+function checkImportUrl() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const importData = urlParams.get('import');
+  
+  if (importData) {
+    try {
+      const decoded = decodeURIComponent(atob(importData));
+      const minified = JSON.parse(decoded);
+      
+      if (!Array.isArray(minified)) {
+        showToast('Invalid shared data format', true);
+        return;
+      }
+      
+      const importedTasks = minified.map(arr => ({
+        id: 'share_' + Math.random().toString(36).substr(2, 5) + '_' + Date.now(),
+        title: arr[0],
+        notes: arr[1],
+        quadrant: arr[2],
+        due: arr[3] || null,
+        completed: arr[4] === 1,
+        updated: Date.now()
+      }));
+      
+      setTimeout(() => {
+        const choice = confirm(`Import ${importedTasks.length} tasks shared via QR code?\n\nPress OK to MERGE into your list.\nPress Cancel to discard.`);
+        
+        if (choice) {
+          // Merge imported tasks
+          let merged = [...state.tasks];
+          importedTasks.forEach(task => {
+            // Match by title to avoid duplicating active work
+            const exists = merged.some(t => t.title.toLowerCase() === task.title.toLowerCase());
+            if (!exists) {
+              merged.push(task);
+            }
+          });
+          
+          state.tasks = merged;
+          saveLocalTasks();
+          renderAll();
+          showToast(`Successfully imported ${importedTasks.length} tasks!`);
+          
+          // Sync if enabled
+          if (state.syncKey && state.syncServerIp) {
+            syncWithLocalServer(true);
+          }
+        }
+        
+        // Clean URL parameters cleanly so it doesn't prompt on reload
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }, 800);
+      
+    } catch (err) {
+      console.error('Failed to import shared tasks from URL:', err);
+      showToast('Malformed shared tasks data link', true);
+    }
+  }
+}
+
 
 // ==========================================
 // 6. TASK CRUD OPERATIONS
@@ -697,12 +687,9 @@ function addTask(title, specificQuadrant = null) {
   saveLocalTasks();
   renderAll();
   
-  // Background Sync
-  if (state.isLoggedIn) {
-    syncLocalTaskToGoogle(newTask).then(() => {
-      saveLocalTasks();
-      renderAll();
-    });
+  // Background local Wi-Fi sync
+  if (state.syncKey && state.syncServerIp) {
+    syncWithLocalServer(false);
   }
   
   showToast(`Added task to ${targetQuadrant === 'INBOX' ? 'Inbox' : targetQuadrant}`);
@@ -735,12 +722,9 @@ function updateTask(id, updatedFields) {
   saveLocalTasks();
   renderAll();
   
-  // Background Sync
-  if (state.isLoggedIn) {
-    syncLocalTaskToGoogle(state.tasks[taskIndex]).then(() => {
-      saveLocalTasks();
-      renderAll();
-    });
+  // Background local Wi-Fi sync
+  if (state.syncKey && state.syncServerIp) {
+    syncWithLocalServer(false);
   }
   
   showToast('Task updated');
@@ -759,12 +743,9 @@ function toggleTaskCompletion(id) {
   saveLocalTasks();
   renderAll();
   
-  // Background Sync
-  if (state.isLoggedIn) {
-    syncLocalTaskToGoogle(task).then(() => {
-      saveLocalTasks();
-      renderAll();
-    });
+  // Background local Wi-Fi sync
+  if (state.syncKey && state.syncServerIp) {
+    syncWithLocalServer(false);
   }
 }
 
@@ -775,16 +756,13 @@ function deleteTask(id) {
   const taskIndex = state.tasks.findIndex(t => t.id === id);
   if (taskIndex === -1) return;
   
-  const task = state.tasks[taskIndex];
-  const googleId = task.googleTaskId;
-  
   state.tasks.splice(taskIndex, 1);
   saveLocalTasks();
   renderAll();
   
-  // Background Sync
-  if (state.isLoggedIn && googleId) {
-    deleteGoogleTask(googleId);
+  // Background local Wi-Fi sync
+  if (state.syncKey && state.syncServerIp) {
+    syncWithLocalServer(true); // force push deletion
   }
   
   showToast('Task deleted');
@@ -847,12 +825,9 @@ function moveTask(id, targetQuadrant) {
   saveLocalTasks();
   renderAll();
   
-  // Sync in background
-  if (state.isLoggedIn) {
-    syncLocalTaskToGoogle(task).then(() => {
-      saveLocalTasks();
-      renderAll();
-    });
+  // Background local Wi-Fi sync
+  if (state.syncKey && state.syncServerIp) {
+    syncWithLocalServer(false);
   }
   
   showToast(`Moved task to ${targetQuadrant === 'INBOX' ? 'Inbox' : targetQuadrant}`);
@@ -1103,6 +1078,27 @@ function openEditModal(taskId) {
 // ==========================================
 
 function registerEventListeners() {
+  // Tabbed Navigation Event Listeners
+  const tabBtns = document.querySelectorAll('.tab-btn');
+  tabBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      // Deactivate all tabs
+      tabBtns.forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+      
+      // Activate target tab
+      btn.classList.add('active');
+      const tabId = btn.dataset.tab;
+      const targetContent = document.getElementById(tabId);
+      
+      if (tabId === 'tab-qr') {
+        targetContent.style.display = 'flex';
+      } else {
+        targetContent.style.display = 'block';
+      }
+    });
+  });
+
   // Sidebar Toggles
   el.inboxToggleBtn.addEventListener('click', openInbox);
   el.inboxCloseBtn.addEventListener('click', closeInbox);
@@ -1126,48 +1122,67 @@ function registerEventListeners() {
     btn.addEventListener('click', closeModal);
   });
   
-  // Settings Modals open & saves
-  el.settingsBtn.addEventListener('click', () => {
-    el.googleClientIdInput.value = state.googleClientId;
-    openModal(el.settingsModal);
+  // Sync Center Modals open & saves
+  el.syncCenterBtn.addEventListener('click', () => {
+    el.syncServerIpInput.value = state.syncServerIp;
+    el.syncKeyInput.value = state.syncKey;
+    openModal(el.syncModal);
   });
   
-  el.saveSettingsBtn.addEventListener('click', () => {
-    const oldId = state.googleClientId;
-    const newId = el.googleClientIdInput.value.trim();
+  // Generate random sync key
+  el.generateKeyBtn.addEventListener('click', () => {
+    const randomKey = 'Z-' + Math.random().toString(36).substr(2, 6).toUpperCase();
+    el.syncKeyInput.value = randomKey;
+    showToast('New Sync Key generated!');
+  });
+  
+  // Server action listeners
+  el.testConnectionBtn.addEventListener('click', testServerConnection);
+  
+  el.wifiSyncNowBtn.addEventListener('click', async () => {
+    const ip = el.syncServerIpInput.value.trim();
+    const key = el.syncKeyInput.value.trim();
     
-    state.googleClientId = newId;
-    localStorage.setItem('zenmatrix_client_id', newId);
-    
-    // If the active sync tasklist is modified
-    if (state.googleTaskListId !== el.googleTasklistSelect.value && el.googleTasklistSelect.value) {
-      state.googleTaskListId = el.googleTasklistSelect.value;
-      const selectedOption = el.googleTasklistSelect.options[el.googleTasklistSelect.selectedIndex];
-      state.activeTaskListTitle = selectedOption ? selectedOption.textContent : 'Google Task List';
-      
-      localStorage.setItem('zenmatrix_tasklist_id', state.googleTaskListId);
-      localStorage.setItem('zenmatrix_tasklist_title', state.activeTaskListTitle);
+    if (!ip || !key) {
+      showToast('Please enter both Server IP and Sync Key', true);
+      return;
     }
     
+    state.syncServerIp = ip;
+    state.syncKey = key;
+    localStorage.setItem('zenmatrix_sync_server', ip);
+    localStorage.setItem('zenmatrix_sync_key', key);
+    
+    showToast('Initiating sync...');
+    await syncWithLocalServer(true);
     closeModal();
-    showToast('Settings saved!');
-    
-    if (newId !== oldId) {
-      initGoogleIdentityClient();
-    }
   });
   
-  // Google Action Listeners
-  el.googleLoginBtn.addEventListener('click', connectGoogleAccount);
-  el.disconnectGoogleBtn.addEventListener('click', disconnectGoogle);
+  // QR Share Actions
+  el.generateQrBtn.addEventListener('click', generateQrCode);
   
+  // File Backup Actions
+  el.exportBackupBtn.addEventListener('click', exportTasksToFile);
+  
+  el.importBackupFile.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    importTasksFromFile(file);
+    e.target.value = ''; // clear input cache
+    closeModal();
+  });
+  
+  // Wipe Database
   el.wipeLocalBtn.addEventListener('click', () => {
-    if (confirm('Are you sure you want to clear your local task list? This will remove all local data cache.')) {
+    if (confirm('DANGER! Wipe all local tasks permanently? This cannot be undone.')) {
       state.tasks = [];
       saveLocalTasks();
       renderAll();
       closeModal();
-      showToast('Local database wiped.');
+      showToast('Local database cleared.');
+      
+      if (state.syncKey && state.syncServerIp) {
+        syncWithLocalServer(true);
+      }
     }
   });
   
@@ -1248,20 +1263,23 @@ function initTheme() {
  * Initializes and bootstraps the application
  */
 window.addEventListener('DOMContentLoaded', () => {
-  // Initialize Themes, Storage, & Settings
+  // Initialize Themes, Storage, & Event Listeners
   initTheme();
   loadLocalTasks();
   registerEventListeners();
   initDragAndDrop();
   renderAll();
   
-  // Initialize Google SDK
-  initGoogleIdentityClient();
+  // Check for incoming shared task links from QR Code scans
+  checkImportUrl();
   
-  // Auto-connect if access token is valid
-  if (state.googleAccessToken && checkTokenValidity()) {
-    updateConnectionStatus(true);
-    syncWithGoogle();
+  // Update network connection status and execute initial server sync if configured
+  if (state.syncKey && state.syncServerIp) {
+    updateConnectionStatus(false);
+    syncWithLocalServer(false);
+    startAutoSyncLoop();
+  } else {
+    updateConnectionStatus(false);
   }
 
   // Register Service Worker for PWA Offline execution
