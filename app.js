@@ -660,7 +660,16 @@ async function googleApiFetch(url, options = {}) {
   if (!response.ok) {
     const errorBody = await response.text();
     console.error('Google API Error Response:', errorBody);
-    throw new Error(`Google API returned status ${response.status}`);
+    let message = `Google API returned status ${response.status}`;
+    try {
+      const parsed = JSON.parse(errorBody);
+      if (parsed.error && parsed.error.message) {
+        message = parsed.error.message;
+      }
+    } catch (e) {
+      // Body not JSON or doesn't match standard Google API error format
+    }
+    throw new Error(message);
   }
   
   if (response.status === 204) return null;
@@ -787,8 +796,12 @@ async function syncWithGoogle() {
   } catch (err) {
     console.error('Failed to sync with Google Tasks API:', err);
     const errMsg = err.message || 'Unknown error';
-    if (errMsg.includes('403')) {
-      showToast('Sync Failed: Google Tasks API is NOT enabled in your Cloud Console!', true);
+    
+    // Provide a highly descriptive message for 403 or permission issues
+    if (errMsg.toLowerCase().includes('insufficient permission') || errMsg.toLowerCase().includes('scope')) {
+      showToast('Sync Failed: Insufficient permissions! Make sure to CHECK the "Edit, create, and delete all of your tasks" box in the Google login popup.', true);
+    } else if (errMsg.includes('403') || errMsg.toLowerCase().includes('disabled') || errMsg.toLowerCase().includes('not enabled')) {
+      showToast(`Sync Failed: Google Tasks API is disabled or not enabled in your Google Cloud Project. Please double check Google Cloud Console! Details: ${errMsg}`, true);
     } else {
       showToast(`Sync Failed: ${errMsg}`, true);
     }
